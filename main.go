@@ -21,6 +21,7 @@ import (
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -72,7 +73,7 @@ func main() {
 	}))
 
 	// solo se peude hacer 30 requests por segundo por IP, con un máximo de 30 requests en cola
-	//r.Use(middleware.RateLimiterMiddleware(rate.Every(time.Second/2), 30))
+	r.Use(middleware.RateLimiterMiddleware(rate.Every(time.Second/2), 30))
 	middleware.StartCleanup()
 
 	routes.Init()
