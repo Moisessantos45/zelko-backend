@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"zelko/config"
 	"zelko/config/db"
 	"zelko/internal/routes"
@@ -53,12 +54,13 @@ func main() {
 	HOST_API_PROD := os.Getenv("HOST_API_PROD")
 	HOST_API_PROD_WWW := os.Getenv("HOST_API_PROD_WWW")
 
-	log.Printf("HOST_URL_DEV: %s", HOST_URL_DEV)
-	log.Printf("HOST_URL_PROD: %s", HOST_URL_PROD)
-	log.Printf("HOST_URL_PROD_WWW: %s", HOST_URL_PROD_WWW)
-
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	if strings.TrimSpace(os.Getenv("GO_ENV")) == "prod" {
+		r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+	} else {
+		r.SetTrustedProxies(nil)
+	}
 
 	r.Use(gzip.Gzip(gzip.DefaultCompression))
 	r.Use(ginhelmet.Default())
@@ -103,9 +105,14 @@ func main() {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
+	addr := ":4106"
+	if strings.TrimSpace(os.Getenv("GO_ENV")) == "prod" {
+		addr = "127.0.0.1:4106"
+	}
+
 	log.Println("Server starting on :4106...")
 	httpSrv := &http.Server{
-		Addr:    ":4106",
+		Addr:    addr,
 		Handler: r,
 	}
 
