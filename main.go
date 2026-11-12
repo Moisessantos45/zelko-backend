@@ -56,10 +56,15 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	r.Use(middleware.RequestIDMiddleware())
+	r.Use(gin.Logger(), middleware.SafeRecovery())
+	r.HandleMethodNotAllowed = true
+	r.NoRoute(middleware.NotFound)
+	r.NoMethod(middleware.MethodNotAllowed)
 	if strings.TrimSpace(os.Getenv("GO_ENV")) == "prod" {
-		r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
+		_ = r.SetTrustedProxies([]string{"127.0.0.1", "::1"})
 	} else {
-		r.SetTrustedProxies(nil)
+		_ = r.SetTrustedProxies(nil)
 	}
 
 	r.Use(gzip.Gzip(gzip.DefaultCompression))
@@ -72,6 +77,7 @@ func main() {
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-Idempotency-Key"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
 	}))
 
 	// solo se peude hacer 30 requests por segundo por IP, con un máximo de 30 requests en cola
@@ -112,8 +118,13 @@ func main() {
 
 	log.Println("Server starting on :4106...")
 	httpSrv := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
 	}
 
 	go func() {
