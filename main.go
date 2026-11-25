@@ -68,8 +68,22 @@ func main() {
 	r.Use(ginhelmet.Default())
 	r.Use(ginhelmet.Referrer())
 
+	isProd := strings.TrimSpace(os.Getenv("GO_ENV")) == "prod"
+	candidates := []string{HOST_URL_PROD, HOST_URL_PROD_WWW, HOST_API_PROD, HOST_API_PROD_WWW}
+	if !isProd {
+		candidates = append(candidates, HOST_URL_DEV)
+	}
+
+	allowOrigins := make([]string, 0, len(candidates))
+	for _, o := range candidates {
+		o = strings.TrimSpace(o)
+		if o != "" && o != "*" {
+			allowOrigins = append(allowOrigins, o)
+		}
+	}
+
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{HOST_URL_DEV, HOST_URL_PROD, HOST_URL_PROD_WWW, HOST_API_PROD, HOST_API_PROD_WWW},
+		AllowOrigins:     allowOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Requested-With", "X-Idempotency-Key"},
 		ExposeHeaders:    []string{"Content-Length"},
