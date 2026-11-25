@@ -1,12 +1,11 @@
 package document
 
 import (
-	"bytes"
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 	"zelko/internal/shared/helper"
 	"zelko/internal/shared/utils"
@@ -211,39 +210,38 @@ func (h *Handler) Compile(c *gin.Context) {
 		return
 	}
 
+	engine := strings.ToLower(c.DefaultQuery("engine", "latex"))
+
+	if err := ValidateSource(engine, document.Content); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "contenido rechazado: " + err.Error()})
+		return
+	}
+
+	srcName := "main.tex"
+	if engine == "typst" {
+		srcName = "main.typ"
+	}
+
 	jobDir := filepath.Join(baseDir, "tmp", slug)
 
 	_ = os.RemoveAll(jobDir)
 
-	if err := os.MkdirAll(jobDir, 0755); err != nil {
+	if err := os.MkdirAll(jobDir, 0750); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
 		return
 	}
 
-	texPath := filepath.Join(jobDir, "main.tex")
-	if err := os.WriteFile(texPath, []byte(document.Content), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(jobDir, srcName), []byte(document.Content), 0640); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
 		return
 	}
 
-	cmd := exec.Command(
-		"latexmk",
-		"-pdf",
-		"-interaction=nonstopmode",
-		"-halt-on-error",
-		"main.tex",
-	)
-	cmd.Dir = jobDir
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	if err := cmd.Run(); err != nil {
+	logOut, err := RunCompiler(engine, jobDir, srcName)
+	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"ok":    false,
-			"error": "latex compilation failed",
-			"log":   out.String(),
+			"error": engine + " compilation failed",
+			"log":   logOut,
 		})
 		utils.CleanupDirLater(jobDir, 5*time.Minute)
 		return
@@ -254,7 +252,7 @@ func (h *Handler) Compile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"ok":    false,
 			"error": "pdf not generated",
-			"log":   out.String(),
+			"log":   logOut,
 		})
 		utils.CleanupDirLater(jobDir, 5*time.Minute)
 		return
@@ -266,7 +264,7 @@ func (h *Handler) Compile(c *gin.Context) {
 		"ok":     true,
 		"slug":   slug,
 		"pdfUrl": fmt.Sprintf("/api/v1/documents/%s/preview", slug),
-		"log":    out.String(),
+		"log":    logOut,
 	})
 }
 
