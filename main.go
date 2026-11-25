@@ -8,7 +8,6 @@ import (
 	"zelko/internal/routes"
 	"zelko/internal/shared/helper"
 	"zelko/internal/shared/middleware"
-	"zelko/internal/shared/utils"
 
 	"fmt"
 	"log"
@@ -45,10 +44,7 @@ func main() {
 		fmt.Println("Error initializing Redis:", err)
 		return
 	}
-
-	ip := utils.GetOutboundIP()
-	log.Println("Environment variables loaded successfully", ip)
-
+	
 	HOST_URL_DEV := os.Getenv("HOST_URL_DEV")
 	HOST_URL_PROD := os.Getenv("HOST_URL_PROD")
 	HOST_URL_PROD_WWW := os.Getenv("HOST_URL_PROD_WWW")
