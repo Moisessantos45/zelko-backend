@@ -49,3 +49,20 @@ func TestCompileReal(t *testing.T) {
 		}
 	}
 }
+
+func TestTypstFontawesome(t *testing.T) {
+	src := "#import \"@preview/fontawesome:0.5.0\": *\n= Hola #fa-icon(\"github\")\n"
+	if err := ValidateSource("typst", src); err != nil {
+		t.Skip(err)
+	}
+	if ValidateSource("typst", "#import \"@preview/noexiste:9.9.9\": *") == nil {
+		t.Fatal("debió rechazar paquete no instalado")
+	}
+	d := t.TempDir()
+	os.WriteFile(filepath.Join(d, "main.typ"), []byte(src), 0600)
+	log, err := RunCompiler("typst", d, "main.typ")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, log)
+	}
+	t.Log(log)
+}

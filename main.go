@@ -44,7 +44,7 @@ func main() {
 		fmt.Println("Error initializing Redis:", err)
 		return
 	}
-	
+
 	HOST_URL_DEV := os.Getenv("HOST_URL_DEV")
 	HOST_URL_PROD := os.Getenv("HOST_URL_PROD")
 	HOST_URL_PROD_WWW := os.Getenv("HOST_URL_PROD_WWW")
@@ -79,7 +79,7 @@ func main() {
 
 	// solo se peude hacer 30 requests por segundo por IP, con un máximo de 30 requests en cola
 	middleware.StartCleanup()
-	r.Use(middleware.RateLimiterMiddleware(rate.Every(time.Second/2), 30))
+	r.Use(middleware.RateLimiterRedis(config.Rdb, "global", rate.Limit(5), 50))
 
 	// Solo application/json y multipart/form-data, con límites de tamaño y validación de JSON
 	r.MaxMultipartMemory = 8 << 20

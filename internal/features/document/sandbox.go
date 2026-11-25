@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
@@ -48,7 +50,7 @@ var typstRules = []rule{
 	r(`\bread\s*\(`, "read() no permitido"),
 	r(`\b(image|include|csv|json|yaml|toml|xml|cbor|bibliography)\s*\(\s*"[^"]*(\.\.|^/)`, "ruta con '..' no permitida"),
 	r(`\b(image|include|csv|json|yaml|toml|xml|cbor|bibliography|read)\s*\(\s*"/`, "ruta absoluta no permitida"),
-	r(`@(preview|local)/`, "paquetes externos no permitidos"),
+	r(`@local/`, "paquetes locales no permitidos"),
 }
 
 // ValidateSource rechaza contenido excesivo o con construcciones peligrosas.
@@ -73,6 +75,42 @@ func ValidateSource(engine, content string) error {
 	for _, ru := range rules {
 		if ru.re.MatchString(content) {
 			return errors.New(ru.msg)
+		}
+	}
+
+	if engine == "typst" {
+		return validateTypstPackages(content)
+	}
+	return nil
+}
+
+var typstPkgRef = regexp.MustCompile(`@([A-Za-z0-9_-]+)/([A-Za-z0-9._-]*)(?::([A-Za-z0-9._-]+))?`)
+
+// typstPackageCache devuelve el directorio de paquetes de Typst ya instalados.
+func typstPackageCache() string {
+	if d := os.Getenv("TYPST_PACKAGE_CACHE_PATH"); d != "" {
+		return d
+	}
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, "typst", "packages")
+	}
+	return ""
+}
+
+// Solo se permiten paquetes @preview que ya estén instalados en la caché
+// (el sandbox no tiene red, así que nunca se descarga nada).
+func validateTypstPackages(content string) error {
+	for _, m := range typstPkgRef.FindAllStringSubmatch(content, -1) {
+		ns, name, ver := m[1], m[2], m[3]
+		if ns != "preview" {
+			continue // p. ej. correos "user@example.com" no cumplen el patrón de import
+		}
+		if name == "" || ver == "" {
+			return errors.New("paquete de Typst inválido (usa @preview/nombre:versión)")
+		}
+		dir := filepath.Join(typstPackageCache(), "preview", name, ver)
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			return fmt.Errorf("paquete @preview/%s:%s no está instalado en el servidor", name, ver)
 		}
 	}
 	return nil
@@ -111,27 +149,7 @@ func RunCompiler(engine, jobDir, srcName string) (string, error) {
 		return "", fmt.Errorf("motor no soportado: %s", engine)
 	}
 
-	// Aislamiento con bubblewrap si está instalado.
-	if bwrap, err := exec.LookPath("bwrap"); err == nil {
-		args = append([]string{
-			bwrap,
-			"--ro-bind", "/", "/",
-			"--dev", "/dev",
-			"--proc", "/proc",
-			"--tmpfs", "/tmp",
-			"--tmpfs", "/home",
-			"--tmpfs", "/root",
-			"--bind", jobDir, jobDir,
-			"--unshare-all",
-			"--die-with-parent",
-			"--new-session",
-			"--chdir", jobDir,
-		}, args...)
-	}
-
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = jobDir
-	cmd.Env = []string{
+	env := []string{
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		"HOME=" + jobDir,
 		"LANG=C.UTF-8",
@@ -139,6 +157,46 @@ func RunCompiler(engine, jobDir, srcName string) (string, error) {
 		"openout_any=p", // TeX solo escribe en el directorio actual
 		"shell_escape=f",
 	}
+
+	// Aislamiento con bubblewrap si está instalado.
+	if bwrap, err := exec.LookPath("bwrap"); err == nil {
+		bw := []string{
+			bwrap,
+			"--ro-bind", "/", "/",
+			"--dev", "/dev",
+			"--proc", "/proc",
+			"--tmpfs", "/tmp",
+			"--tmpfs", "/home",
+			"--tmpfs", "/root",
+		}
+		if engine == "typst" {
+			// Paquetes y fuentes del usuario, solo lectura.
+			if pk := typstPackageCache(); pk != "" {
+				if _, err := os.Stat(pk); err == nil {
+					bw = append(bw, "--ro-bind", pk, pk)
+					env = append(env, "TYPST_PACKAGE_CACHE_PATH="+pk)
+				}
+			}
+			if h, err := os.UserHomeDir(); err == nil {
+				fonts := filepath.Join(h, ".local", "share", "fonts")
+				if _, err := os.Stat(fonts); err == nil {
+					bw = append(bw, "--ro-bind", fonts, fonts)
+					env = append(env, "TYPST_FONT_PATHS="+fonts)
+				}
+			}
+		}
+		args = append(append(bw, []string{
+			"--bind", jobDir, jobDir,
+			"--unshare-all",
+			"--die-with-parent",
+			"--new-session",
+			"--chdir", jobDir,
+		}...), args...)
+	}
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = jobDir
+	cmd.Env = env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 2 * time.Second

@@ -202,7 +202,7 @@ func (h *Handler) Compile(c *gin.Context) {
 		return
 	}
 
-	engine := strings.ToLower(c.DefaultQuery("engine", "latex"))
+	engine := strings.ToLower(document.TypeDocument)
 
 	if err := ValidateSource(engine, document.Content); err != nil {
 		helper.RespondError(c, err)
