@@ -144,5 +144,13 @@ func main() {
 		log.Fatal("Server forced to shutdown: ", err)
 	}
 
+	if config.Rdb != nil {
+		if err := config.Rdb.Close(); err != nil {
+			log.Println("Error closing Redis:", err)
+		}
+	}
+
+	db.CloseDB()
+
 	log.Println("Server exiting")
 }
