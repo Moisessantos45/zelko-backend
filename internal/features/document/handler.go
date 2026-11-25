@@ -2,11 +2,13 @@ package document
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"zelko/internal/shared/errorsx"
 	"zelko/internal/shared/helper"
 	"zelko/internal/shared/utils"
 
@@ -14,8 +16,9 @@ import (
 )
 
 type CreateRequest struct {
-	Title   string `json:"title" binding:"required"`
-	Content string `json:"content"`
+	Title        string `json:"title" binding:"required"`
+	Content      string `json:"content" binding:"required"`
+	TypeDocument string `json:"type_document" binding:"required"`
 }
 
 type UpdateRequest struct {
@@ -32,11 +35,15 @@ func NewHandler(uc Service) *Handler {
 		uc: uc,
 	}
 }
+func jwtError(c *gin.Context, err error) {
+	log.Printf("Error extrayendo datos del JWT: %v", err)
+	helper.RespondError(c, errorsx.ErrUnauthorized)
+}
 
 func (h *Handler) ListVisibility(c *gin.Context) {
 	visibilities, err := h.uc.ListVisibility(c.Request.Context())
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Failed to list visibilities: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -46,19 +53,19 @@ func (h *Handler) ListVisibility(c *gin.Context) {
 func (h *Handler) List(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	queryParams, err := utils.ParsePagination(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid query parameters: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	results, err := h.uc.List(c.Request.Context(), authID, queryParams.Page, queryParams.PageSize)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Failed to list documents: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -68,19 +75,19 @@ func (h *Handler) List(c *gin.Context) {
 func (h *Handler) GetBySlug(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	slug := c.Param("slug")
 	if slug == "" {
-		c.JSON(400, gin.H{"message": "Slug is required"})
+		helper.RespondError(c, errorsx.ErrNotFound)
 		return
 	}
 
 	document, err := h.uc.GetBySlug(c.Request.Context(), authID, slug)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Failed to get document: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -90,23 +97,18 @@ func (h *Handler) GetBySlug(c *gin.Context) {
 func (h *Handler) Create(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	var req CreateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
-	document, err := h.uc.Create(c.Request.Context(), authID, req.Title, req.Content)
+	document, err := h.uc.Create(c.Request.Context(), authID, req.Title, req.Content, req.TypeDocument)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Failed to create document: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -116,29 +118,24 @@ func (h *Handler) Create(c *gin.Context) {
 func (h *Handler) Update(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	slug := c.Param("slug")
 	if slug == "" {
-		c.JSON(400, gin.H{"message": "Slug is required"})
+		helper.RespondError(c, errorsx.ErrNotFound)
 		return
 	}
 
 	var req UpdateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err = h.uc.Update(c.Request.Context(), authID, slug, req.Title, req.Content)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Failed to update document: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -148,13 +145,13 @@ func (h *Handler) Update(c *gin.Context) {
 func (h *Handler) UpdateVisibility(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	slug := c.Param("slug")
 	if slug == "" {
-		c.JSON(400, gin.H{"message": "Slug is required"})
+		helper.RespondError(c, errorsx.ErrNotFound)
 		return
 	}
 
@@ -162,18 +159,13 @@ func (h *Handler) UpdateVisibility(c *gin.Context) {
 		VisibilityID uint64 `json:"visibility_id" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err = h.uc.UpdateVisibility(c.Request.Context(), authID, slug, req.VisibilityID)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Failed to update document visibility: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -183,37 +175,37 @@ func (h *Handler) UpdateVisibility(c *gin.Context) {
 func (h *Handler) Compile(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	slug := c.Param("slug")
 	if slug == "" {
-		c.JSON(400, gin.H{"message": "Slug is required"})
+		helper.RespondError(c, errorsx.ErrNotFound)
 		return
 	}
 
 	document, err := h.uc.GetBySlug(c.Request.Context(), authID, slug)
 	if err != nil {
-		c.JSON(404, gin.H{"message": "Document not found: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	if document.Content == "" {
-		c.JSON(400, gin.H{"ok": false, "error": "document has no content to compile"})
+		helper.RespondError(c, errorsx.ErrInvalidData)
 		return
 	}
 
 	baseDir, err := utils.AppDir()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	engine := strings.ToLower(c.DefaultQuery("engine", "latex"))
 
 	if err := ValidateSource(engine, document.Content); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"ok": false, "error": "contenido rechazado: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -227,33 +219,25 @@ func (h *Handler) Compile(c *gin.Context) {
 	_ = os.RemoveAll(jobDir)
 
 	if err := os.MkdirAll(jobDir, 0750); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	if err := os.WriteFile(filepath.Join(jobDir, srcName), []byte(document.Content), 0640); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	logOut, err := RunCompiler(engine, jobDir, srcName)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"ok":    false,
-			"error": engine + " compilation failed",
-			"log":   logOut,
-		})
+		helper.RespondError(c, err)
 		utils.CleanupDirLater(jobDir, 5*time.Minute)
 		return
 	}
 
 	pdfPath := filepath.Join(jobDir, "main.pdf")
 	if _, err := os.Stat(pdfPath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"ok":    false,
-			"error": "pdf not generated",
-			"log":   logOut,
-		})
+		helper.RespondError(c, err)
 		utils.CleanupDirLater(jobDir, 5*time.Minute)
 		return
 	}
@@ -271,30 +255,30 @@ func (h *Handler) Compile(c *gin.Context) {
 func (h *Handler) Preview(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid auth: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	slug := c.Param("slug")
 	if slug == "" {
-		c.JSON(400, gin.H{"message": "Slug is required"})
+		helper.RespondError(c, errorsx.ErrNotFound)
 		return
 	}
 
 	if _, err := h.uc.GetBySlug(c.Request.Context(), authID, slug); err != nil {
-		c.JSON(404, gin.H{"message": "Document not found: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	baseDir, err := utils.AppDir()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	pdfPath := filepath.Join(baseDir, "tmp", slug, "main.pdf")
 	if _, err := os.Stat(pdfPath); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "pdf not found"})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -307,25 +291,25 @@ func (h *Handler) Preview(c *gin.Context) {
 func (h *Handler) PreviewPublic(c *gin.Context) {
 	slug := c.Param("slug")
 	if slug == "" {
-		c.JSON(400, gin.H{"message": "Slug is required"})
+		helper.RespondError(c, errorsx.ErrNotFound)
 		return
 	}
 
 	_, err := h.uc.IsPublicBySlug(c.Request.Context(), slug)
 	if err != nil {
-		c.JSON(404, gin.H{"message": "Document not found: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	baseDir, err := utils.AppDir()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"ok": false, "error": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
 	pdfPath := filepath.Join(baseDir, "tmp", slug, "main.pdf")
 	if _, err := os.Stat(pdfPath); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"ok": false, "error": "pdf not found"})
+		helper.RespondError(c, err)
 		return
 	}
 

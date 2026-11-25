@@ -48,6 +48,7 @@ type Document struct {
 	Content      string `json:"content" gorm:"type:text"`
 	URL          string `json:"url" gorm:"varchar(255)"`
 	VisibilityID uint64 `json:"visibility_id" gorm:"not null"`
+	TypeDocument string `json:"type_document" gorm:"not null;varchar(5);default:'latex'"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`

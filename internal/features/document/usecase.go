@@ -118,7 +118,7 @@ func (uc *UseCase) IsPublicBySlug(ctx context.Context, slug string) (bool, error
 	return isPublic, nil
 }
 
-func (uc *UseCase) Create(ctx context.Context, authID uint64, title string, content string) (*models.Document, error) {
+func (uc *UseCase) Create(ctx context.Context, authID uint64, title string, content string, typeDocument string) (*models.Document, error) {
 	if authID == 0 {
 		return nil, fmt.Errorf("invalid authID: %d", authID)
 	}
@@ -128,7 +128,7 @@ func (uc *UseCase) Create(ctx context.Context, authID uint64, title string, cont
 		return nil, fmt.Errorf("failed to get user ID by authID: %w", err)
 	}
 
-	newDocument, err := New(userID, title, content)
+	newDocument, err := New(userID, title, content, typeDocument)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new document: %w", err)
 	}
@@ -140,6 +140,7 @@ func (uc *UseCase) Create(ctx context.Context, authID uint64, title string, cont
 	if host == "" {
 		host = "http://localhost:4106"
 	}
+	
 	newDocument.URL = generateURL(host, newDocument.Slug, newDocument.VisibilityID)
 
 	err = uc.repo.Create(ctx, newDocument)

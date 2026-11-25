@@ -29,12 +29,12 @@ type Service interface {
 	GetBySlug(ctx context.Context, authID uint64, slug string) (*models.Document, error)
 	IsPublicBySlug(ctx context.Context, slug string) (bool, error)
 	ListVisibility(ctx context.Context) ([]models.Visibility, error)
-	Create(ctx context.Context, authID uint64, title string, content string) (*models.Document, error)
+	Create(ctx context.Context, authID uint64, title string, content string,typeDocument string) (*models.Document, error)
 	Update(ctx context.Context, authID uint64, slug string, title *string, content *string) error
 	UpdateVisibility(ctx context.Context, authID uint64, slug string, visibilityID uint64) error
 }
 
-func New(userID uint64, title string, content string) (*models.Document, error) {
+func New(userID uint64, title string, content string, typeDocument string) (*models.Document, error) {
 	if userID == 0 {
 		return nil, fmt.Errorf("invalid userID: %d", userID)
 	}
@@ -43,10 +43,19 @@ func New(userID uint64, title string, content string) (*models.Document, error) 
 		return nil, fmt.Errorf("invalid title: %s", title)
 	}
 
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("invalid content: %s", content)
+	}
+
+	if typeDocument != "latex" && typeDocument != "typst" {
+		return nil, fmt.Errorf("invalid typeDocument: %s", typeDocument)
+	}
+
 	return &models.Document{
 		UserID:  userID,
 		Title:   title,
 		Content: content,
+		TypeDocument: typeDocument,
 	}, nil
 }
 
