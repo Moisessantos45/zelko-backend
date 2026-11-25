@@ -61,7 +61,7 @@ func (a *AuthUseCase) Register(ctx context.Context, email string, password strin
 	}
 
 	if existingUser {
-		return nil, fmt.Errorf("el correo electrónico ya se encuentra registrado")
+		return nil, errorsx.Conflict("El correo electrónico ya se encuentra registrado")
 	}
 
 	newUser, err := NewUser(email, password)
@@ -128,11 +128,11 @@ func (a *AuthUseCase) Register(ctx context.Context, email string, password strin
 
 func (a *AuthUseCase) Login(ctx context.Context, email string, password string) (*models.Auth, string, error) {
 	if email == "" || len(email) <= 10 || !utils.EmailRegex.MatchString(email) {
-		return nil, "", fmt.Errorf("email inválido: %s", email)
+		return nil, "", errorsx.BadRequest("Correo electrónico inválido")
 	}
 
 	if password == "" || len(password) < 6 {
-		return nil, "", fmt.Errorf("la contraseña debe tener al menos 6 caracteres")
+		return nil, "", errorsx.BadRequest("La contraseña debe tener al menos 6 caracteres")
 	}
 
 	user, err := a.repo.GetActiveUserByEmail(email)
@@ -141,11 +141,11 @@ func (a *AuthUseCase) Login(ctx context.Context, email string, password string) 
 			return nil, "", errorsx.ErrCodeEmailNotVerified
 		}
 
-		return nil, "", fmt.Errorf("No se encontro email")
+		return nil, "", errorsx.ErrInvalidCredentials
 	}
 
 	if !utils.CheckPasswordHash(password, user.PasswordHash) {
-		return nil, "", fmt.Errorf("contraseña incorrecta")
+		return nil, "", errorsx.ErrInvalidCredentials
 	}
 
 	if user.TwoFactorEnabled {
@@ -199,19 +199,19 @@ func (a *AuthUseCase) Login(ctx context.Context, email string, password string) 
 
 func (a *AuthUseCase) Verify2FALogin(ctx context.Context, sessionID string, code string) (*models.Auth, string, error) {
 	if sessionID == "" {
-		return nil, "", fmt.Errorf("sesión temporal inválida")
+		return nil, "", errorsx.Unauthorized("Sesión temporal inválida")
 	}
 
 	key := fmt.Sprintf("preauth:%s", sessionID)
 
 	vals, err := a.rd.HGetAll(ctx, key).Result()
 	if err != nil || len(vals) == 0 {
-		return nil, "", fmt.Errorf("sesión temporal expirada o inválida")
+		return nil, "", errorsx.Unauthorized("Sesión temporal expirada o inválida")
 	}
 
 	authStage, ok := vals["auth_stage"]
 	if !ok || authStage != "pending_2fa" {
-		return nil, "", fmt.Errorf("estado de sesión inválido")
+		return nil, "", errorsx.Unauthorized("Estado de sesión inválido")
 	}
 
 	userIDStr, ok := vals["user_id"]
@@ -230,7 +230,7 @@ func (a *AuthUseCase) Verify2FALogin(ctx context.Context, sessionID string, code
 	}
 
 	if !utils.VerifyTOTP(user.TwoFactorSecret, code) {
-		return nil, "", fmt.Errorf("código 2FA inválido")
+		return nil, "", errorsx.Unauthorized("Código 2FA inválido")
 	}
 
 	a.rd.Del(ctx, key)
@@ -258,7 +258,7 @@ func (a *AuthUseCase) Verify2FALogin(ctx context.Context, sessionID string, code
 
 func (a *AuthUseCase) VerifyEmail(email string) error {
 	if email == "" || len(email) <= 10 || !utils.EmailRegex.MatchString(email) {
-		return fmt.Errorf("email inválido: %s", email)
+		return errorsx.BadRequest("Correo electrónico inválido")
 	}
 
 	exists, err := a.repo.ExistsByEmail(email)
@@ -266,7 +266,7 @@ func (a *AuthUseCase) VerifyEmail(email string) error {
 		return fmt.Errorf("error verificando email: %w", err)
 	}
 	if !exists {
-		return fmt.Errorf("No se encontro email")
+		return errorsx.NotFound("No se encontró el correo electrónico")
 	}
 
 	return nil
@@ -274,7 +274,7 @@ func (a *AuthUseCase) VerifyEmail(email string) error {
 
 func (a *AuthUseCase) ExistsByEmail(email string) (bool, error) {
 	if email == "" || len(email) <= 10 || !utils.EmailRegex.MatchString(email) {
-		return false, fmt.Errorf("email inválido: %s", email)
+		return false, errorsx.BadRequest("Correo electrónico inválido")
 	}
 
 	exists, err := a.repo.ExistsByEmail(email)
@@ -311,7 +311,7 @@ func (a *AuthUseCase) GetBasicByID(id uint64) (*UserBasic, error) {
 func (a *AuthUseCase) RefreshToken(ctx context.Context, token string) (string, error) {
 	payload, err := a.mk.VerifyToken(token)
 	if err != nil {
-		return "", fmt.Errorf("Invalid token: %w", err)
+		return "", errorsx.Unauthorized("Token inválido")
 	}
 
 	userId := payload.UserID
@@ -329,15 +329,15 @@ func (a *AuthUseCase) RefreshToken(ctx context.Context, token string) (string, e
 
 func (a *AuthUseCase) ForwardEmailVerification(ctx context.Context, email string) error {
 	if email == "" || len(email) <= 10 || !utils.EmailRegex.MatchString(email) {
-		return fmt.Errorf("email inválido: %s", email)
+		return errorsx.BadRequest("Correo electrónico inválido")
 	}
 
 	user, err := a.repo.GetByEmailAny(email)
 	if err != nil {
-		return fmt.Errorf("No se encontro email")
+		return errorsx.NotFound("No se encontró el correo electrónico")
 	}
 	if user == nil {
-		return fmt.Errorf("No se encontro email")
+		return errorsx.NotFound("No se encontró el correo electrónico")
 	}
 
 	token, err := a.mk.NewToken(fmt.Sprintf("%d", user.ID), 15*time.Minute)
@@ -379,18 +379,18 @@ func (a *AuthUseCase) ConfirmAccount(ctx context.Context, userId uint64, token s
 	}
 
 	if token == "" {
-		return fmt.Errorf("token inválido")
+		return errorsx.BadRequest("Token inválido")
 	}
 
 	confirmKey := fmt.Sprintf("confirm:%d", userId)
 
 	storedToken, err := a.rd.Get(ctx, confirmKey).Result()
 	if err != nil {
-		return fmt.Errorf("token expirado o inválido")
+		return errorsx.BadRequest("Token expirado o inválido")
 	}
 
 	if storedToken != token {
-		return fmt.Errorf("token inválido")
+		return errorsx.BadRequest("Token inválido")
 	}
 
 	if err := a.repo.UpdateEmailConfirm(userId); err != nil {
@@ -404,7 +404,7 @@ func (a *AuthUseCase) ConfirmAccount(ctx context.Context, userId uint64, token s
 
 func (a *AuthUseCase) SendPasswordReset(ctx context.Context, email string) error {
 	if email == "" || len(email) <= 10 || !utils.EmailRegex.MatchString(email) {
-		return fmt.Errorf("email inválido: %s", email)
+		return errorsx.BadRequest("Correo electrónico inválido")
 	}
 
 	user, err := a.repo.GetBasicByEmail(email)
@@ -443,7 +443,7 @@ func (a *AuthUseCase) SendPasswordReset(ctx context.Context, email string) error
 
 func (a *AuthUseCase) ResetPassword(userId uint64, newPassword string) error {
 	if newPassword == "" || len(newPassword) < 6 {
-		return fmt.Errorf("la contraseña debe tener al menos 6 caracteres")
+		return errorsx.BadRequest("La contraseña debe tener al menos 6 caracteres")
 	}
 
 	hashedPassword, err := utils.HashPassword(newPassword)
@@ -465,16 +465,16 @@ func (a *AuthUseCase) UpdatePassword(userId uint64, currentPassword string, newP
 	}
 
 	if newPassword == "" || len(newPassword) < 6 {
-		return fmt.Errorf("la contraseña debe tener al menos 6 caracteres")
+		return errorsx.BadRequest("La contraseña debe tener al menos 6 caracteres")
 	}
 
 	user, err := a.repo.GetByID(userId)
 	if err != nil {
-		return fmt.Errorf("No se encontro el usuario")
+		return errorsx.NotFound("No se encontró el usuario")
 	}
 
 	if !utils.CheckPasswordHash(currentPassword, user.PasswordHash) {
-		return fmt.Errorf("contraseña actual incorrecta")
+		return errorsx.BadRequest("La contraseña actual es incorrecta")
 	}
 
 	hashedPassword, err := utils.HashPassword(newPassword)
@@ -523,7 +523,7 @@ func (a *AuthUseCase) EnableTWOFA(userId uint64) (string, string, error) {
 
 	user, err := a.repo.GetByID(userId)
 	if err != nil {
-		return "", "", fmt.Errorf("El usuario no existe")
+		return "", "", errorsx.NotFound("El usuario no existe")
 	}
 
 	uri, secret, err := utils.GenerateTOTP(user.Email, "SpinLuck")
@@ -546,11 +546,11 @@ func (a *AuthUseCase) VerifyTOTP(userId uint64, code string) (bool, error) {
 
 	user, err := a.repo.GetByID(userId)
 	if err != nil {
-		return false, fmt.Errorf("El usuario no existe")
+		return false, errorsx.NotFound("El usuario no existe")
 	}
 
 	if !user.TwoFactorEnabled {
-		return false, fmt.Errorf("La autenticación de dos factores no está habilitada para este usuario")
+		return false, errorsx.BadRequest("La autenticación de dos factores no está habilitada para este usuario")
 	}
 
 	return utils.VerifyTOTP(user.TwoFactorSecret, code), nil
@@ -598,7 +598,7 @@ func (a *AuthUseCase) UpdateEmail(ctx context.Context, authID uint64, newEmail s
 	}
 
 	if newEmail == "" || len(newEmail) <= 10 || !utils.EmailRegex.MatchString(newEmail) {
-		return fmt.Errorf("email inválido: %s", newEmail)
+		return errorsx.BadRequest("Correo electrónico inválido")
 	}
 
 	exists, err := a.repo.ExistsByEmail(newEmail)
@@ -607,7 +607,7 @@ func (a *AuthUseCase) UpdateEmail(ctx context.Context, authID uint64, newEmail s
 	}
 
 	if exists {
-		return fmt.Errorf("el correo electrónico ya se encuentra registrado")
+		return errorsx.Conflict("El correo electrónico ya se encuentra registrado")
 	}
 
 	if err := a.repo.UpdateEmail(authID, newEmail); err != nil {

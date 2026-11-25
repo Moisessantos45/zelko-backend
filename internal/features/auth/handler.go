@@ -35,6 +35,11 @@ func isSecureCookie() bool {
 	return os.Getenv("GO_ENV") == "prod"
 }
 
+func jwtError(c *gin.Context, err error) {
+	log.Printf("Error extrayendo datos del JWT: %v", err)
+	helper.RespondError(c, errorsx.ErrUnauthorized)
+}
+
 func NewAuthHandler(s Service) *AuthHandler {
 	return &AuthHandler{
 		s: s,
@@ -47,7 +52,7 @@ func (h *AuthHandler) Verify2FALogin(c *gin.Context) {
 
 	sessionID, err := c.Cookie("pre_auth_session")
 	if err != nil || sessionID == "" {
-		c.JSON(401, gin.H{"message": "Sesión de pre-autenticación no encontrada o expirada"})
+		helper.RespondError(c, errorsx.Unauthorized("Sesión de pre-autenticación no encontrada o expirada"))
 		return
 	}
 
@@ -56,18 +61,13 @@ func (h *AuthHandler) Verify2FALogin(c *gin.Context) {
 	}
 
 	var req Verify2FARequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	user, refreshToken, err := h.s.Verify2FALogin(ctx, sessionID, req.Code)
 	if err != nil {
-		c.JSON(401, gin.H{"message": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -86,18 +86,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	}
 
 	var req RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	_, err := h.s.Register(ctx, req.Email, req.Password)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error registering user: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -114,12 +109,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	}
 
 	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
@@ -142,7 +132,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 			return
 		}
 
-		c.JSON(401, gin.H{"message": "Invalid email or password"})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -154,13 +144,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 func (h *AuthHandler) GetSession(c *gin.Context) {
 	_, userID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	session, err := h.s.GetSession(userID)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error getting session: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -172,13 +162,13 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 
 	token, err := c.Cookie("refresh_token")
 	if err != nil {
-		c.JSON(400, gin.H{"message": "No refresh token provided"})
+		helper.RespondError(c, errorsx.BadRequest("No se proporcionó el refresh token"))
 		return
 	}
 
 	newToken, err := h.s.RefreshToken(ctx, token)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error refreshing token: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -192,18 +182,13 @@ func (h *AuthHandler) ForwardEmailVerification(c *gin.Context) {
 	}
 
 	var req ForwardEmailRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err := h.s.ForwardEmailVerification(ctx, req.Email)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error forwarding email: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -216,18 +201,13 @@ func (h *AuthHandler) VerifyEmail(c *gin.Context) {
 	}
 
 	var req VerifyEmailRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err := h.s.VerifyEmail(req.Email)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error verifying email: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -238,13 +218,13 @@ func (h *AuthHandler) ConfirmAccount(c *gin.Context) {
 	ctx := c.Request.Context()
 	token, userID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	err = h.s.ConfirmAccount(ctx, userID, token)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "No se pudo confirmar la cuenta: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -259,18 +239,13 @@ func (h *AuthHandler) SendPasswordReset(c *gin.Context) {
 	}
 
 	var req SendPasswordResetRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err := h.s.SendPasswordReset(ctx, req.Email)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error sending password reset email: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -280,7 +255,7 @@ func (h *AuthHandler) SendPasswordReset(c *gin.Context) {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	_, userId, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
@@ -289,18 +264,13 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	}
 
 	var req ResetPasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err = h.s.ResetPassword(userId, req.NewPassword)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error resetting password: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -310,7 +280,7 @@ func (h *AuthHandler) ResetPassword(c *gin.Context) {
 func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	_, userID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
@@ -320,18 +290,13 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 	}
 
 	var req UpdatePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err = h.s.UpdatePassword(userID, req.CurrentPassword, req.NewPassword)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error updating password: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -341,13 +306,13 @@ func (h *AuthHandler) UpdatePassword(c *gin.Context) {
 func (h *AuthHandler) EnableTWOFA(c *gin.Context) {
 	_, userID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	uri, secret, err := h.s.EnableTWOFA(userID)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error enabling 2FA: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -357,7 +322,7 @@ func (h *AuthHandler) EnableTWOFA(c *gin.Context) {
 func (h *AuthHandler) TestingCrateTWOFA(c *gin.Context) {
 	uri, secret, err := utils.GenerateTOTP("moy@gmail.com", "uaslp")
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error generating TOTP: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -367,7 +332,7 @@ func (h *AuthHandler) TestingCrateTWOFA(c *gin.Context) {
 func (h *AuthHandler) TestVerifyTOTP(c *gin.Context) {
 	_, userID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
@@ -376,18 +341,13 @@ func (h *AuthHandler) TestVerifyTOTP(c *gin.Context) {
 	}
 
 	var req VerifyTOTPRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	valid, err := h.s.VerifyTOTP(userID, req.Code)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error verifying TOTP: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -397,13 +357,13 @@ func (h *AuthHandler) TestVerifyTOTP(c *gin.Context) {
 func (h *AuthHandler) DisableTWOFA(c *gin.Context) {
 	_, userID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid token: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	err = h.s.DisableTWOFA(userID)
 	if err != nil {
-		c.JSON(500, gin.H{"message": "Error disabling 2FA: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 

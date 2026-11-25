@@ -6,6 +6,7 @@ import (
 	"log"
 	"zelko/internal/features/auth"
 	"zelko/internal/models"
+	"zelko/internal/shared/errorsx"
 )
 
 type UserUseCase struct {
@@ -86,7 +87,7 @@ func (uc *UserUseCase) Update(ctx context.Context, authID uint64, firstName *str
 	}
 
 	if user == nil {
-		return fmt.Errorf("user not found for authID: %d", authID)
+		return errorsx.NotFound("Usuario no encontrado")
 	}
 
 	updateData := BuildUpdateData(firstName, lastName)

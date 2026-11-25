@@ -2,7 +2,7 @@ package user
 
 import (
 	"log"
-	"net/http"
+	"zelko/internal/shared/errorsx"
 	"zelko/internal/shared/helper"
 	"zelko/internal/shared/utils"
 
@@ -23,6 +23,11 @@ type UserHandler struct {
 	uc Service
 }
 
+func jwtError(c *gin.Context, err error) {
+	log.Printf("Error extrayendo datos del JWT: %v", err)
+	helper.RespondError(c, errorsx.ErrUnauthorized)
+}
+
 func NewUserHandler(uc Service) *UserHandler {
 	return &UserHandler{uc: uc}
 }
@@ -30,13 +35,13 @@ func NewUserHandler(uc Service) *UserHandler {
 func (h *UserHandler) GetByAuthID(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid ID: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	user, err := h.uc.GetByAuthID(c.Request.Context(), authID)
 	if err != nil {
-		c.JSON(500, gin.H{"message": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -46,24 +51,20 @@ func (h *UserHandler) GetByAuthID(c *gin.Context) {
 func (h *UserHandler) Create(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		log.Printf("Error extracting authID: %v", err)
-		c.JSON(400, gin.H{"message": "Invalid ID: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	log.Printf("Creating user with authID: %d", authID)
 
 	var user CreateUserRequest
-	if err := c.ShouldBindJSON(&user); err != nil {
-		log.Printf("Error binding JSON: %v", err)
-		c.JSON(400, gin.H{"message": "Invalid request body"})
+	if !helper.BindJSON(c, &user) {
 		return
 	}
 
 	_, err = h.uc.Create(c.Request.Context(), authID, user.FirstName, user.LastName)
 	if err != nil {
-		log.Printf("Error creating user: %v", err)
-		c.JSON(500, gin.H{"message": "Error creating user: " + err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
@@ -73,23 +74,18 @@ func (h *UserHandler) Create(c *gin.Context) {
 func (h *UserHandler) Update(c *gin.Context) {
 	_, authID, err := utils.ExtractedParamsJwt(c)
 	if err != nil {
-		c.JSON(400, gin.H{"message": "Invalid ID: " + err.Error()})
+		jwtError(c, err)
 		return
 	}
 
 	var req UpdateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code":    "VALIDATION_ERROR",
-			"message": "Datos inválidos",
-			"errors":  helper.HumanValidationErrors(err),
-		})
+	if !helper.BindJSON(c, &req) {
 		return
 	}
 
 	err = h.uc.Update(c.Request.Context(), authID, req.FirstName, req.LastName)
 	if err != nil {
-		c.JSON(500, gin.H{"message": err.Error()})
+		helper.RespondError(c, err)
 		return
 	}
 
