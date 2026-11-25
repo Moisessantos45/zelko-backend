@@ -6,6 +6,7 @@ import (
 	"zelko/config"
 	"zelko/config/db"
 	"zelko/internal/routes"
+	"zelko/internal/shared/helper"
 	"zelko/internal/shared/middleware"
 	"zelko/internal/shared/utils"
 
@@ -81,8 +82,15 @@ func main() {
 	}))
 
 	// solo se peude hacer 30 requests por segundo por IP, con un máximo de 30 requests en cola
-	r.Use(middleware.RateLimiterMiddleware(rate.Every(time.Second/2), 30))
 	middleware.StartCleanup()
+	r.Use(middleware.RateLimiterMiddleware(rate.Every(time.Second/2), 30))
+
+	// Solo application/json y multipart/form-data, con límites de tamaño y validación de JSON
+	r.MaxMultipartMemory = 8 << 20
+	r.Use(middleware.RequestGuard(middleware.DefaultGuardConfig))
+
+	// Los errores de validación usan los nombres del tag json (p. ej. first_name)
+	helper.RegisterJSONTagName()
 
 	routes.Init()
 
