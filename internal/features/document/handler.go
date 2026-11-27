@@ -202,7 +202,10 @@ func (h *Handler) Compile(c *gin.Context) {
 		return
 	}
 
-	engine := strings.ToLower(document.TypeDocument)
+	engine := strings.ToLower(strings.TrimSpace(document.TypeDocument))
+	if engine == "" {
+		engine = "latex" // documentos antiguos creados antes de existir type_document
+	}
 
 	if err := ValidateSource(engine, document.Content); err != nil {
 		helper.RespondError(c, err)
