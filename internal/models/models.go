@@ -42,13 +42,13 @@ type Visibility struct {
 
 type Document struct {
 	ID           uint64 `json:"id" gorm:"primaryKey"`
-	Slug         string `json:"slug" gorm:"unique;not null;varchar(64)"`
+	Slug         string `json:"slug" gorm:"size:64;unique;not null"`
 	UserID       uint64 `json:"user_id" gorm:"not null"`
-	Title        string `json:"title" gorm:"not null;varchar(255)"`
+	Title        string `json:"title" gorm:"size:255;not null"`
 	Content      string `json:"content" gorm:"type:text"`
-	URL          string `json:"url" gorm:"varchar(255)"`
+	URL          string `json:"url" gorm:"size:255"`
 	VisibilityID uint64 `json:"visibility_id" gorm:"not null"`
-	TypeDocument string `json:"type_document" gorm:"not null;varchar(5);default:'latex'"`
+	TypeDocument string `json:"type_document" gorm:"size:5;not null;default:'latex'"`
 
 	CreatedAt time.Time `json:"created_at" gorm:"autoCreateTime"`
 	UpdatedAt time.Time `json:"updated_at" gorm:"autoUpdateTime"`
