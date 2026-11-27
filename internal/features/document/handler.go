@@ -233,8 +233,21 @@ func (h *Handler) Compile(c *gin.Context) {
 
 	logOut, err := RunCompiler(engine, jobDir, srcName)
 	if err != nil {
-		helper.RespondError(c, err)
 		utils.CleanupDirLater(jobDir, 5*time.Minute)
+
+		// Error del documento (o timeout): se devuelve el log al usuario para que lo corrija.
+		tail := logOut
+		if len(tail) > 2000 {
+			tail = tail[len(tail)-2000:]
+		}
+		log.Printf("[WARN] compile %s (%s) failed: %v\n%s", slug, engine, err, tail)
+
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"ok":      false,
+			"code":    "COMPILATION_FAILED",
+			"message": "La compilación falló, revisa el log",
+			"log":     logOut,
+		})
 		return
 	}
 
